@@ -1,13 +1,16 @@
 package de.test.antennapod.service.playback;
 
 import android.content.Context;
+import android.util.Log;
 
+import android.os.Build;
 import androidx.test.annotation.UiThreadTest;
 import androidx.test.filters.MediumTest;
 
 import de.danoeh.antennapod.model.feed.VolumeAdaptionSetting;
 import de.danoeh.antennapod.playback.base.PlaybackServiceMediaPlayer;
 import de.danoeh.antennapod.playback.base.PlayerStatus;
+import de.danoeh.antennapod.playback.service.internal.LocalPSMP;
 import de.danoeh.antennapod.storage.database.PodDBAdapter;
 import de.test.antennapod.EspressoTestUtils;
 import junit.framework.AssertionFailedError;
@@ -27,7 +30,6 @@ import de.danoeh.antennapod.model.feed.Feed;
 import de.danoeh.antennapod.model.feed.FeedItem;
 import de.danoeh.antennapod.model.feed.FeedMedia;
 import de.danoeh.antennapod.model.feed.FeedPreferences;
-import de.danoeh.antennapod.core.service.playback.LocalPSMP;
 import de.danoeh.antennapod.model.playback.Playable;
 import de.test.antennapod.util.service.download.HTTPBin;
 import org.junit.After;
@@ -42,31 +44,44 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 /**
  * Test class for LocalPSMP
  */
 @MediumTest
 public class PlaybackServiceMediaPlayerTest {
+    private static final String TAG = "PsmpTest";
     private static final String PLAYABLE_DEST_URL = "psmptestfile.mp3";
     private String PLAYABLE_LOCAL_URL = null;
     private static final int LATCH_TIMEOUT_SECONDS = 3;
 
     private HTTPBin httpServer;
     private String playableFileUrl;
+    private PlaybackServiceMediaPlayer psmp = null;
     private volatile AssertionFailedError assertionError;
 
     @After
     @UiThreadTest
     public void tearDown() throws Exception {
+        if (Build.VERSION.SDK_INT < 30) {
+            return; // Test ignored on old Android versions for now
+        }
         PodDBAdapter.deleteDatabase();
         httpServer.stop();
+        if (psmp != null) {
+            psmp.shutdown();
+            psmp = null;
+        }
     }
 
     @Before
     @UiThreadTest
     public void setUp() throws Exception {
+        assumeTrue(Build.VERSION.SDK_INT >= 30); // Ignored on old Android versions for now
+
         assertionError = null;
+        psmp = null;
         EspressoTestUtils.clearPreferences();
         EspressoTestUtils.clearDatabase();
 
@@ -98,7 +113,7 @@ public class PlaybackServiceMediaPlayerTest {
 
     private void checkPSMPInfo(LocalPSMP.PSMPInfo info) {
         try {
-            switch (info.playerStatus) {
+            switch (info.getPlayerStatus()) {
                 case PLAYING:
                 case PAUSED:
                 case PREPARED:
@@ -106,11 +121,13 @@ public class PlaybackServiceMediaPlayerTest {
                 case INITIALIZED:
                 case INITIALIZING:
                 case SEEKING:
-                    assertNotNull(info.playable);
+                    assertNotNull(info.getPlayable());
                     break;
                 case STOPPED:
                 case ERROR:
-                    assertNull(info.playable);
+                    assertNull(info.getPlayable());
+                    break;
+                default:
                     break;
             }
         } catch (AssertionFailedError e) {
@@ -123,18 +140,20 @@ public class PlaybackServiceMediaPlayerTest {
     @UiThreadTest
     public void testInit() {
         final Context c = getInstrumentation().getTargetContext();
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, new DefaultPSMPCallback());
-        psmp.shutdown();
+        psmp = new LocalPSMP(c, new DefaultPSMPCallback());
     }
 
     private Playable writeTestPlayable(String downloadUrl, String fileUrl) {
-        Feed f = new Feed(0, null, "f", "l", "d", null, null, null, null, "i", null, null, "l", false);
-        FeedPreferences prefs = new FeedPreferences(f.getId(), false, FeedPreferences.AutoDeleteAction.NO, VolumeAdaptionSetting.OFF, null, null);
+        Feed f = new Feed(0, null, "f", "l", "d", null, null, null, null,
+                "i", null, null, "l", System.currentTimeMillis());
+        FeedPreferences prefs = new FeedPreferences(f.getId(), FeedPreferences.AutoDownloadSetting.GLOBAL, FeedPreferences.AutoDeleteAction.NEVER,
+                VolumeAdaptionSetting.OFF, FeedPreferences.NewEpisodesAction.NOTHING, null, null);
         f.setPreferences(prefs);
         f.setItems(new ArrayList<>());
         FeedItem i = new FeedItem(0, "t", "i", "l", new Date(), FeedItem.UNPLAYED, f);
         f.getItems().add(i);
-        FeedMedia media = new FeedMedia(0, i, 0, 0, 0, "audio/wav", fileUrl, downloadUrl, fileUrl != null, null, 0, 0);
+        FeedMedia media = new FeedMedia(0, i, 0, 0, 0, "audio/wav", fileUrl, downloadUrl,
+                fileUrl == null ? 0 : System.currentTimeMillis(), null, 0, 0);
         i.setMedia(media);
         PodDBAdapter adapter = PodDBAdapter.getInstance();
         adapter.open();
@@ -154,15 +173,16 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     } else {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     }
                 } catch (AssertionFailedError e) {
@@ -171,7 +191,7 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, null);
         psmp.playMediaObject(p, true, false, false);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -179,10 +199,9 @@ public class PlaybackServiceMediaPlayerTest {
             throw assertionError;
         assertTrue(res);
 
-        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().getPlayerStatus());
         assertFalse(psmp.isStartWhenPrepared());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -195,15 +214,16 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     } else {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     }
                 } catch (AssertionFailedError e) {
@@ -212,7 +232,7 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, null);
         psmp.playMediaObject(p, true, true, false);
 
@@ -221,10 +241,9 @@ public class PlaybackServiceMediaPlayerTest {
             throw assertionError;
         assertTrue(res);
 
-        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().getPlayerStatus());
         assertTrue(psmp.isStartWhenPrepared());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -237,18 +256,19 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 4) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 3) {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.PREPARING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 1) {
-                        assertEquals(PlayerStatus.PREPARED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARED, newInfo.getPlayerStatus());
                     }
                     countDownLatch.countDown();
                 } catch (AssertionFailedError e) {
@@ -257,17 +277,15 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, null);
         psmp.playMediaObject(p, true, false, true);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.PREPARED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.PREPARED, psmp.getPSMPInfo().getPlayerStatus());
         callback.cancel();
-
-        psmp.shutdown();
     }
 
     @Test
@@ -280,21 +298,21 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
-
                     } else if (countDownLatch.getCount() == 5) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 4) {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 3) {
-                        assertEquals(PlayerStatus.PREPARING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.PREPARED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 1) {
-                        assertEquals(PlayerStatus.PLAYING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PLAYING, newInfo.getPlayerStatus());
                     }
                     countDownLatch.countDown();
                 } catch (AssertionFailedError e) {
@@ -303,16 +321,15 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, null);
         psmp.playMediaObject(p, true, true, true);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.PLAYING, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.PLAYING, psmp.getPSMPInfo().getPlayerStatus());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -325,15 +342,16 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     } else {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     }
                 } catch (AssertionFailedError e) {
@@ -342,17 +360,16 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         psmp.playMediaObject(p, false, false, false);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().getPlayerStatus());
         assertFalse(psmp.isStartWhenPrepared());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -365,15 +382,16 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     } else {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                         countDownLatch.countDown();
                     }
                 } catch (AssertionFailedError e) {
@@ -382,17 +400,16 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         psmp.playMediaObject(p, false, true, false);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.INITIALIZED, psmp.getPSMPInfo().getPlayerStatus());
         assertTrue(psmp.isStartWhenPrepared());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -405,18 +422,19 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 4) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 3) {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.PREPARING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 1) {
-                        assertEquals(PlayerStatus.PREPARED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARED, newInfo.getPlayerStatus());
                     }
                     countDownLatch.countDown();
                 } catch (AssertionFailedError e) {
@@ -425,16 +443,15 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         psmp.playMediaObject(p, false, false, true);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.PREPARED, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.PREPARED, psmp.getPSMPInfo().getPlayerStatus());
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -447,20 +464,21 @@ public class PlaybackServiceMediaPlayerTest {
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
                 try {
                     checkPSMPInfo(newInfo);
-                    if (newInfo.playerStatus == PlayerStatus.ERROR)
+                    if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
                         throw new IllegalStateException("MediaPlayer error");
+                    }
                     if (countDownLatch.getCount() == 0) {
                         fail();
                     } else if (countDownLatch.getCount() == 5) {
-                        assertEquals(PlayerStatus.INITIALIZING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 4) {
-                        assertEquals(PlayerStatus.INITIALIZED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.INITIALIZED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 3) {
-                        assertEquals(PlayerStatus.PREPARING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARING, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 2) {
-                        assertEquals(PlayerStatus.PREPARED, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PREPARED, newInfo.getPlayerStatus());
                     } else if (countDownLatch.getCount() == 1) {
-                        assertEquals(PlayerStatus.PLAYING, newInfo.playerStatus);
+                        assertEquals(PlayerStatus.PLAYING, newInfo.getPlayerStatus());
                     }
 
                 } catch (AssertionFailedError e) {
@@ -471,16 +489,15 @@ public class PlaybackServiceMediaPlayerTest {
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         psmp.playMediaObject(p, false, true, true);
         boolean res = countDownLatch.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
-        assertSame(PlayerStatus.PLAYING, psmp.getPSMPInfo().playerStatus);
+        assertSame(PlayerStatus.PLAYING, psmp.getPSMPInfo().getPlayerStatus());
         callback.cancel();
-        psmp.shutdown();
     }
 
     private void pauseTestSkeleton(final PlayerStatus initialState, final boolean stream, final boolean abandonAudioFocus, final boolean reinit, long timeoutSeconds) throws InterruptedException {
@@ -491,21 +508,25 @@ public class PlaybackServiceMediaPlayerTest {
         CancelablePSMPCallback callback = new CancelablePSMPCallback(new DefaultPSMPCallback() {
             @Override
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
+                Log.d(TAG, "pauseTestSkeleton: statusChanged: " + newInfo.getPlayerStatus());
                 checkPSMPInfo(newInfo);
-                if (newInfo.playerStatus == PlayerStatus.ERROR) {
-                    if (assertionError == null)
-                        assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
+                    if (assertionError == null) {
+                        assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                    }
                 } else if (initialState != PlayerStatus.PLAYING) {
-                    if (assertionError == null)
-                        assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                    if (assertionError == null) {
+                        assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                    }
                 } else {
-                    switch (newInfo.playerStatus) {
+                    switch (newInfo.getPlayerStatus()) {
                         case PAUSED:
                             if (latchCount == countDownLatch.getCount())
                                 countDownLatch.countDown();
                             else {
-                                if (assertionError == null)
-                                    assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                                if (assertionError == null) {
+                                    assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                                }
                             }
                             break;
                         case INITIALIZED:
@@ -513,8 +534,10 @@ public class PlaybackServiceMediaPlayerTest {
                                 countDownLatch.countDown();
                             } else if (countDownLatch.getCount() < latchCount) {
                                 if (assertionError == null)
-                                    assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                                    assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
                             }
+                            break;
+                        default:
                             break;
                     }
                 }
@@ -527,7 +550,7 @@ public class PlaybackServiceMediaPlayerTest {
                     assertionError = new AssertionFailedError("Unexpected call to shouldStop");
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         if (initialState == PlayerStatus.PLAYING) {
             psmp.playMediaObject(p, stream, true, true);
@@ -538,7 +561,6 @@ public class PlaybackServiceMediaPlayerTest {
             throw assertionError;
         assertTrue(res || initialState != PlayerStatus.PLAYING);
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -604,14 +626,17 @@ public class PlaybackServiceMediaPlayerTest {
         CancelablePSMPCallback callback = new CancelablePSMPCallback(new DefaultPSMPCallback() {
             @Override
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
+                Log.d(TAG, "resumeTestSkeleton: statusChanged: " + newInfo.getPlayerStatus());
                 checkPSMPInfo(newInfo);
-                if (newInfo.playerStatus == PlayerStatus.ERROR) {
-                    if (assertionError == null)
-                        assertionError = new UnexpectedStateChange(newInfo.playerStatus);
-                } else if (newInfo.playerStatus == PlayerStatus.PLAYING) {
+                if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
+                    if (assertionError == null) {
+                        assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                    }
+                } else if (newInfo.getPlayerStatus() == PlayerStatus.PLAYING) {
                     if (countDownLatch.getCount() == 0) {
-                        if (assertionError == null)
-                            assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                        if (assertionError == null) {
+                            assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                        }
                     } else {
                         countDownLatch.countDown();
                     }
@@ -619,7 +644,7 @@ public class PlaybackServiceMediaPlayerTest {
 
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         if (initialState == PlayerStatus.PREPARED || initialState == PlayerStatus.PLAYING || initialState == PlayerStatus.PAUSED) {
             boolean startWhenPrepared = (initialState != PlayerStatus.PREPARED);
             psmp.playMediaObject(writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL), false, startWhenPrepared, true);
@@ -633,7 +658,6 @@ public class PlaybackServiceMediaPlayerTest {
             throw assertionError;
         assertTrue(res || (initialState != PlayerStatus.PAUSED && initialState != PlayerStatus.PREPARED));
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -661,20 +685,23 @@ public class PlaybackServiceMediaPlayerTest {
         CancelablePSMPCallback callback = new CancelablePSMPCallback(new DefaultPSMPCallback() {
             @Override
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
+                Log.d(TAG, "prepareTestSkeleton: statusChanged: " + newInfo.getPlayerStatus());
                 checkPSMPInfo(newInfo);
-                if (newInfo.playerStatus == PlayerStatus.ERROR) {
-                    if (assertionError == null)
-                        assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
+                    if (assertionError == null) {
+                        assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                    }
                 } else {
-                    if (initialState == PlayerStatus.INITIALIZED && newInfo.playerStatus == PlayerStatus.PREPARED) {
+                    if (initialState == PlayerStatus.INITIALIZED && newInfo.getPlayerStatus()
+                            == PlayerStatus.PREPARED) {
                         countDownLatch.countDown();
-                    } else if (initialState != PlayerStatus.INITIALIZED && initialState == newInfo.playerStatus) {
+                    } else if (initialState != PlayerStatus.INITIALIZED && initialState == newInfo.getPlayerStatus()) {
                         countDownLatch.countDown();
                     }
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         if (initialState == PlayerStatus.INITIALIZED
                 || initialState == PlayerStatus.PLAYING
@@ -691,14 +718,13 @@ public class PlaybackServiceMediaPlayerTest {
 
         boolean res = countDownLatch.await(timeoutSeconds, TimeUnit.SECONDS);
         if (initialState != PlayerStatus.INITIALIZED) {
-            assertEquals(initialState, psmp.getPSMPInfo().playerStatus);
+            assertEquals(initialState, psmp.getPSMPInfo().getPlayerStatus());
         }
 
         if (assertionError != null)
             throw assertionError;
         assertTrue(res);
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test
@@ -732,20 +758,23 @@ public class PlaybackServiceMediaPlayerTest {
         CancelablePSMPCallback callback = new CancelablePSMPCallback(new DefaultPSMPCallback() {
             @Override
             public void statusChanged(LocalPSMP.PSMPInfo newInfo) {
+                Log.d(TAG, "reinitTestSkeleton: statusChanged: " + newInfo.getPlayerStatus());
                 checkPSMPInfo(newInfo);
-                if (newInfo.playerStatus == PlayerStatus.ERROR) {
-                    if (assertionError == null)
-                        assertionError = new UnexpectedStateChange(newInfo.playerStatus);
+                if (newInfo.getPlayerStatus() == PlayerStatus.ERROR) {
+                    if (assertionError == null) {
+                        assertionError = new UnexpectedStateChange(newInfo.getPlayerStatus());
+                    }
                 } else {
-                    if (newInfo.playerStatus == initialState) {
+                    if (newInfo.getPlayerStatus() == initialState) {
                         countDownLatch.countDown();
-                    } else if (countDownLatch.getCount() < latchCount && newInfo.playerStatus == PlayerStatus.INITIALIZED) {
+                    } else if (countDownLatch.getCount() < latchCount && newInfo.getPlayerStatus()
+                            == PlayerStatus.INITIALIZED) {
                         countDownLatch.countDown();
                     }
                 }
             }
         });
-        PlaybackServiceMediaPlayer psmp = new LocalPSMP(c, callback);
+        psmp = new LocalPSMP(c, callback);
         Playable p = writeTestPlayable(playableFileUrl, PLAYABLE_LOCAL_URL);
         boolean prepareImmediately = initialState != PlayerStatus.INITIALIZED;
         boolean startImmediately = initialState != PlayerStatus.PREPARED;
@@ -759,7 +788,6 @@ public class PlaybackServiceMediaPlayerTest {
             throw assertionError;
         assertTrue(res);
         callback.cancel();
-        psmp.shutdown();
     }
 
     @Test

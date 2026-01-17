@@ -1,7 +1,6 @@
 package de.danoeh.antennapod.net.discovery;
 
 import androidx.annotation.Nullable;
-import de.danoeh.antennapod.net.sync.gpoddernet.model.GpodnetPodcast;
 import de.mfietz.fyydlin.SearchHit;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -64,7 +63,7 @@ public class PodcastSearchResult {
      * @throws JSONException
      */
     public static PodcastSearchResult fromItunesToplist(JSONObject json) throws JSONException {
-        String title = json.getJSONObject("title").getString("label");
+        String title = json.getJSONObject("im:name").getString("label");
         String imageUrl = null;
         JSONArray images =  json.getJSONArray("im:image");
         for(int i=0; imageUrl == null && i < images.length(); i++) {
@@ -90,13 +89,6 @@ public class PodcastSearchResult {
         return new PodcastSearchResult(searchHit.getTitle(),
                                        searchHit.getThumbImageURL(),
                                        searchHit.getXmlUrl(),
-                                       searchHit.getAuthor());
-    }
-
-    public static PodcastSearchResult fromGpodder(GpodnetPodcast searchHit) {
-        return new PodcastSearchResult(searchHit.getTitle(),
-                                       searchHit.getLogoUrl(),
-                                       searchHit.getUrl(),
                                        searchHit.getAuthor());
     }
 

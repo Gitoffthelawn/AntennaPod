@@ -11,23 +11,19 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.espresso.PerformException;
 import androidx.test.espresso.UiController;
 import androidx.test.espresso.ViewAction;
-import androidx.test.espresso.ViewInteraction;
-import androidx.test.espresso.contrib.DrawerActions;
 import androidx.test.espresso.contrib.RecyclerViewActions;
 import androidx.test.espresso.util.HumanReadables;
 import androidx.test.espresso.util.TreeIterables;
 import android.view.View;
 
+import de.danoeh.antennapod.playback.service.PlaybackService;
 import de.danoeh.antennapod.storage.database.PodDBAdapter;
 import junit.framework.AssertionFailedError;
 
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.activity.MainActivity;
-import de.danoeh.antennapod.core.preferences.UserPreferences;
-import de.danoeh.antennapod.core.service.download.DownloadService;
-import de.danoeh.antennapod.core.service.playback.PlaybackService;
-import de.danoeh.antennapod.dialog.RatingDialog;
-import de.danoeh.antennapod.fragment.NavDrawerFragment;
+import de.danoeh.antennapod.storage.preferences.UserPreferences;
+import de.danoeh.antennapod.ui.screen.drawer.NavDrawerFragment;
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionTimeoutException;
 import org.hamcrest.Matcher;
@@ -38,14 +34,17 @@ import java.util.concurrent.TimeoutException;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.hasDescendant;
+import static androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
 import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.not;
 
 public class EspressoTestUtils {
     /**
@@ -99,9 +98,8 @@ public class EspressoTestUtils {
      *
      * @param viewMatcher The view to wait for.
      * @param timeoutMillis Maximum waiting period in milliseconds.
-     * @throws Exception Throws an Exception in case of a timeout.
      */
-    public static void waitForViewGlobally(@NonNull Matcher<View> viewMatcher, long timeoutMillis) throws Exception {
+    public static void waitForViewGlobally(@NonNull Matcher<View> viewMatcher, long timeoutMillis) {
         long startTime = System.currentTimeMillis();
         long endTime = startTime + timeoutMillis;
 
@@ -110,14 +108,21 @@ public class EspressoTestUtils {
                 onView(viewMatcher).check(matches(isDisplayed()));
                 // no Exception thrown -> check successful
                 return;
-            } catch (NoMatchingViewException | AssertionFailedError ignore) {
+            } catch (NoMatchingViewException | AssertionFailedError exception) {
                 // check was not successful "not found" -> continue waiting
+                if (System.currentTimeMillis() >= endTime) {
+                    throw exception;
+                }
             }
-            //noinspection BusyWait
-            Thread.sleep(50);
-        } while (System.currentTimeMillis() < endTime);
+            try {
+                //noinspection BusyWait
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                break;
+            }
+        } while (true);
 
-        throw new Exception("Timeout after " + timeoutMillis + " ms");
+        throw new RuntimeException("Timeout after " + timeoutMillis + " ms");
     }
 
     /**
@@ -145,6 +150,21 @@ public class EspressoTestUtils {
         };
     }
 
+    public static void waitForViewToDisappear(Matcher<? super View> matcher, long maxWaitingTimeMs) {
+        long endTime = System.currentTimeMillis() + maxWaitingTimeMs;
+        while (System.currentTimeMillis() <= endTime) {
+            try {
+                onView(allOf(matcher, isDisplayed())).check(matches(not(doesNotExist())));
+                Thread.sleep(100);
+            } catch (NoMatchingViewException ex) {
+                return; // view has disappeared
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        throw new RuntimeException("timeout exceeded"); // or whatever exception you want
+    }
+    
     /**
      * Clear all app databases.
      */
@@ -165,18 +185,19 @@ public class EspressoTestUtils {
 
         PreferenceManager.getDefaultSharedPreferences(InstrumentationRegistry.getInstrumentation().getTargetContext())
                 .edit()
-                .putString(UserPreferences.PREF_UPDATE_INTERVAL, "0")
+                .putString(UserPreferences.PREF_UPDATE_INTERVAL_MINUTES, "0")
                 .commit();
-
-        RatingDialog.init(InstrumentationRegistry.getInstrumentation().getTargetContext());
-        RatingDialog.saveRated();
     }
 
-    public static void setLastNavFragment(String tag) {
+    public static void setLaunchScreen(String tag) {
         InstrumentationRegistry.getInstrumentation().getTargetContext()
                 .getSharedPreferences(NavDrawerFragment.PREF_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(NavDrawerFragment.PREF_LAST_FRAGMENT_TAG, tag)
+                .commit();
+        PreferenceManager.getDefaultSharedPreferences(InstrumentationRegistry.getInstrumentation().getTargetContext())
+                .edit()
+                .putString(UserPreferences.PREF_DEFAULT_PAGE, UserPreferences.DEFAULT_PAGE_REMEMBER)
                 .commit();
     }
 
@@ -196,13 +217,15 @@ public class EspressoTestUtils {
                         click()));
     }
 
-    public static void openNavDrawer() {
-        onView(isRoot()).perform(waitForView(withId(R.id.drawer_layout), 1000));
-        onView(withId(R.id.drawer_layout)).perform(DrawerActions.open());
+    public static void clickBottomNavItem(@StringRes int text) {
+        onView(allOf(withText(text),
+                isDescendantOfA(withId(R.id.bottomNavigationView)), isDisplayed())).perform(click());
     }
 
-    public static ViewInteraction onDrawerItem(Matcher<View> viewMatcher) {
-        return onView(allOf(viewMatcher, withId(R.id.txtvTitle)));
+    public static void clickBottomNavOverflow(@StringRes int text) {
+        onView(allOf(withText(R.string.overflow_more),
+                isDescendantOfA(withId(R.id.bottomNavigationView)), isDisplayed())).perform(click());
+        onView(allOf(withText(text), isDisplayed())).perform(click());
     }
 
     public static void tryKillPlaybackService() {
@@ -214,21 +237,6 @@ public class EspressoTestUtils {
             // to onDestroy takes until the next GC of the system, which we can not influence.
             // Try to wait for the service at least a bit.
             Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> !PlaybackService.isRunning);
-        } catch (ConditionTimeoutException e) {
-            e.printStackTrace();
-        }
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-    }
-
-    public static void tryKillDownloadService() {
-        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        context.stopService(new Intent(context, DownloadService.class));
-        try {
-            // Android has no reliable way to stop a service instantly.
-            // Calling stopSelf marks allows the system to destroy the service but the actual call
-            // to onDestroy takes until the next GC of the system, which we can not influence.
-            // Try to wait for the service at least a bit.
-            Awaitility.await().atMost(10, TimeUnit.SECONDS).until(() -> !DownloadService.isRunning);
         } catch (ConditionTimeoutException e) {
             e.printStackTrace();
         }

@@ -2,6 +2,7 @@ package de.danoeh.antennapod.ui.statistics;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -10,24 +11,26 @@ import android.view.ViewGroup;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.widget.Toolbar;
+import com.google.android.material.appbar.MaterialToolbar;
 import androidx.fragment.app.Fragment;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
-import de.danoeh.antennapod.core.dialog.ConfirmationDialog;
-import de.danoeh.antennapod.core.storage.DBWriter;
+import de.danoeh.antennapod.ui.common.ConfirmationDialog;
+import de.danoeh.antennapod.storage.database.DBWriter;
 import de.danoeh.antennapod.event.StatisticsEvent;
 import de.danoeh.antennapod.ui.common.PagedToolbarFragment;
+import de.danoeh.antennapod.ui.echo.EchoActivity;
+import de.danoeh.antennapod.ui.echo.EchoConfig;
 import de.danoeh.antennapod.ui.statistics.downloads.DownloadStatisticsFragment;
 import de.danoeh.antennapod.ui.statistics.subscriptions.SubscriptionStatisticsFragment;
 import de.danoeh.antennapod.ui.statistics.years.YearsStatisticsFragment;
-import io.reactivex.Completable;
-import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.disposables.Disposable;
-import io.reactivex.schedulers.Schedulers;
+import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.disposables.Disposable;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 import org.greenrobot.eventbus.EventBus;
 
 /**
@@ -48,7 +51,7 @@ public class StatisticsFragment extends PagedToolbarFragment {
 
     private TabLayout tabLayout;
     private ViewPager2 viewPager;
-    private Toolbar toolbar;
+    private MaterialToolbar toolbar;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
@@ -61,6 +64,9 @@ public class StatisticsFragment extends PagedToolbarFragment {
         toolbar = rootView.findViewById(R.id.toolbar);
         toolbar.setTitle(getString(R.string.statistics_label));
         toolbar.inflateMenu(R.menu.statistics);
+        if (BuildConfig.DEBUG || EchoConfig.isCurrentlyVisible()) {
+            toolbar.getMenu().findItem(R.id.show_echo).setVisible(true);
+        }
         toolbar.setNavigationOnClickListener(v -> getParentFragmentManager().popBackStack());
         viewPager.setAdapter(new StatisticsPagerAdapter(this));
         // Give the TabLayout the ViewPager
@@ -89,6 +95,8 @@ public class StatisticsFragment extends PagedToolbarFragment {
         if (item.getItemId() == R.id.statistics_reset) {
             confirmResetStatistics();
             return true;
+        } else if (item.getItemId() == R.id.show_echo) {
+            startActivity(new Intent(getContext(), EchoActivity.class));
         }
         return super.onOptionsItemSelected(item);
     }

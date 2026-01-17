@@ -1,7 +1,11 @@
 package de.danoeh.antennapod.model.feed;
 
-public class Chapter extends FeedComponent {
-    /** Defines starting point in milliseconds. */
+import java.util.List;
+import java.util.Objects;
+
+public class Chapter {
+    private long id;
+    /** The start time of the chapter in milliseconds */
     private long start;
     private String title;
     private String link;
@@ -62,12 +66,45 @@ public class Chapter extends FeedComponent {
     }
 
     @Override
-    public String getHumanReadableIdentifier() {
-        return title;
+    public String toString() {
+        return "Chapter [title=" + getTitle() + ", start=" + getStart() + ", url=" + getLink() + "]";
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setId(long id) {
+        this.id = id;
+    }
+
+    public static int getAfterPosition(List<Chapter> chapters, int playbackPosition) {
+        if (chapters == null || chapters.isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < chapters.size(); i++) {
+            if (chapters.get(i).getStart() > playbackPosition) {
+                return i - 1;
+            }
+        }
+        return chapters.size() - 1;
     }
 
     @Override
-    public String toString() {
-        return "ID3Chapter [title=" + getTitle() + ", start=" + getStart() + ", url=" + getLink() + "]";
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        Chapter chapter = (Chapter) o;
+        return id == chapter.id;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
     }
 }

@@ -13,15 +13,25 @@
         android:id="@+id/refresh_item"
         android:title="@string/refresh_label"
         android:menuCategory="container"
-        custom:showAsAction="always"
-        android:icon="@drawable/ic_refresh"/>
+        custom:showAsAction="never" />
 
     <item
         android:id="@+id/filter_items"
         android:icon="@drawable/ic_filter"
         android:menuCategory="container"
         android:title="@string/filter"
-        android:visible="false"
         custom:showAsAction="ifRoom"/>
+
+    <item
+        android:id="@+id/action_favorites"
+        android:icon="@drawable/ic_star_border"
+        android:menuCategory="container"
+        android:title="@string/favorite_episodes_label"
+        custom:showAsAction="always"/>
+
+    <item
+        android:id="@+id/episodes_sort"
+        android:title="@string/sort"
+        custom:showAsAction="never" />
 
 </menu>

@@ -6,7 +6,9 @@ import android.database.sqlite.SQLiteDatabase;
 import android.media.MediaMetadataRetriever;
 import android.util.Log;
 
+import de.danoeh.antennapod.model.feed.Feed;
 import de.danoeh.antennapod.model.feed.FeedItem;
+import de.danoeh.antennapod.model.feed.FeedPreferences;
 
 import static de.danoeh.antennapod.model.feed.FeedPreferences.SPEED_USE_GLOBAL;
 
@@ -43,7 +45,7 @@ class DBUpgrader {
         }
         if (oldVersion <= 7) {
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_MEDIA
-                    + " ADD COLUMN " + PodDBAdapter.KEY_PLAYBACK_COMPLETION_DATE
+                    + " ADD COLUMN " + PodDBAdapter.KEY_LAST_PLAYED_TIME_HISTORY
                     + " INTEGER");
         }
         if (oldVersion <= 8) {
@@ -121,9 +123,9 @@ class DBUpgrader {
         }
         if (oldVersion <= 14) {
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
-                    + " ADD COLUMN " + PodDBAdapter.KEY_AUTO_DOWNLOAD_ATTEMPTS + " INTEGER");
+                    + " ADD COLUMN " + PodDBAdapter.KEY_AUTO_DOWNLOAD_ENABLED + " INTEGER");
             db.execSQL("UPDATE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
-                    + " SET " + PodDBAdapter.KEY_AUTO_DOWNLOAD_ATTEMPTS + " = "
+                    + " SET " + PodDBAdapter.KEY_AUTO_DOWNLOAD_ENABLED + " = "
                     + "(SELECT " + PodDBAdapter.KEY_AUTO_DOWNLOAD_ENABLED
                     + " FROM " + PodDBAdapter.TABLE_NAME_FEEDS
                     + " WHERE " + PodDBAdapter.TABLE_NAME_FEEDS + "." + PodDBAdapter.KEY_ID
@@ -146,10 +148,10 @@ class DBUpgrader {
                     + " ADD COLUMN " + PodDBAdapter.KEY_HAS_EMBEDDED_PICTURE + " INTEGER DEFAULT -1");
             db.execSQL("UPDATE " + PodDBAdapter.TABLE_NAME_FEED_MEDIA
                     + " SET " + PodDBAdapter.KEY_HAS_EMBEDDED_PICTURE + "=0"
-                    + " WHERE " + PodDBAdapter.KEY_DOWNLOADED + "=0");
+                    + " WHERE " + PodDBAdapter.KEY_DOWNLOAD_DATE + "=0");
             Cursor c = db.rawQuery("SELECT " + PodDBAdapter.KEY_FILE_URL
                     + " FROM " + PodDBAdapter.TABLE_NAME_FEED_MEDIA
-                    + " WHERE " + PodDBAdapter.KEY_DOWNLOADED + "=1 "
+                    + " WHERE " + PodDBAdapter.KEY_DOWNLOAD_DATE + "=1 "
                     + " AND " + PodDBAdapter.KEY_HAS_EMBEDDED_PICTURE + "=-1", null);
             if (c.moveToFirst()) {
                 MediaMetadataRetriever mmr = new MediaMetadataRetriever();
@@ -185,7 +187,7 @@ class DBUpgrader {
                     + PodDBAdapter.TABLE_NAME_QUEUE + "." + PodDBAdapter.KEY_FEEDITEM
                     + " WHERE "
                     + PodDBAdapter.TABLE_NAME_FEED_ITEMS + "." + PodDBAdapter.KEY_READ + " = 0 AND " // unplayed
-                    + PodDBAdapter.TABLE_NAME_FEED_MEDIA + "." + PodDBAdapter.KEY_DOWNLOADED + " = 0 AND " // undownloaded
+                    + PodDBAdapter.TABLE_NAME_FEED_MEDIA + "." + PodDBAdapter.KEY_DOWNLOAD_DATE + " = 0 AND " // undownloaded
                     + PodDBAdapter.TABLE_NAME_FEED_MEDIA + "." + PodDBAdapter.KEY_POSITION + " = 0 AND " // not partially played
                     + PodDBAdapter.TABLE_NAME_QUEUE + "." + PodDBAdapter.KEY_ID + " IS NULL"; // not in queue
             String sql = "UPDATE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
@@ -208,7 +210,7 @@ class DBUpgrader {
         }
         if (oldVersion < 1040002) {
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_MEDIA
-                    + " ADD COLUMN " + PodDBAdapter.KEY_LAST_PLAYED_TIME + " INTEGER DEFAULT 0");
+                    + " ADD COLUMN " + PodDBAdapter.KEY_LAST_PLAYED_TIME_STATISTICS + " INTEGER DEFAULT 0");
         }
         if (oldVersion < 1040013) {
             db.execSQL(PodDBAdapter.CREATE_INDEX_FEEDITEMS_PUBDATE);
@@ -329,6 +331,29 @@ class DBUpgrader {
         if (oldVersion < 2060000) {
             db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
                     + " ADD COLUMN " + PodDBAdapter.KEY_PODCASTINDEX_CHAPTER_URL + " TEXT");
+        }
+        if (oldVersion < 3010000) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEEDS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_NEW_EPISODES_ACTION + " INTEGER DEFAULT 0");
+        }
+        if (oldVersion < 3040000) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEEDS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_FEED_SKIP_SILENCE
+                    + " INTEGER DEFAULT " + FeedPreferences.SkipSilence.GLOBAL.code);
+        }
+        if (oldVersion < 3050000) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEEDS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_STATE + " INTEGER DEFAULT " + Feed.STATE_SUBSCRIBED);
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_PODCASTINDEX_TRANSCRIPT_URL + " TEXT");
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_PODCASTINDEX_TRANSCRIPT_TYPE + " TEXT");
+        }
+        if (oldVersion < 3080000) {
+            db.execSQL("ALTER TABLE " + PodDBAdapter.TABLE_NAME_FEED_ITEMS
+                    + " ADD COLUMN " + PodDBAdapter.KEY_SOCIAL_INTERACT_URL + " TEXT");
+            db.execSQL("DELETE FROM " + PodDBAdapter.TABLE_NAME_FAVORITES + " WHERE " + PodDBAdapter.KEY_FEEDITEM
+                    + " NOT IN (SELECT " + PodDBAdapter.KEY_ID + " FROM " + PodDBAdapter.TABLE_NAME_FEED_ITEMS + ")");
         }
     }
 

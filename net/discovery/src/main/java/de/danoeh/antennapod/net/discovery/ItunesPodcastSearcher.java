@@ -1,11 +1,10 @@
 package de.danoeh.antennapod.net.discovery;
 
-import de.danoeh.antennapod.core.feed.FeedUrlNotFoundException;
-import de.danoeh.antennapod.core.service.download.AntennapodHttpClient;
-import io.reactivex.Single;
-import io.reactivex.SingleOnSubscribe;
-import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.schedulers.Schedulers;
+import de.danoeh.antennapod.net.common.AntennapodHttpClient;
+import io.reactivex.rxjava3.core.Single;
+import io.reactivex.rxjava3.core.SingleOnSubscribe;
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -111,6 +110,6 @@ public class ItunesPodcastSearcher implements PodcastSearcher {
 
     @Override
     public String getName() {
-        return "iTunes";
+        return "Apple";
     }
 }

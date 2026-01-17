@@ -46,7 +46,7 @@ public class ID3Reader {
     }
 
     protected void readFrame(@NonNull FrameHeader frameHeader) throws IOException, ID3ReaderException {
-        Log.d(TAG, "Skipping frame: " + frameHeader.toString());
+        Log.d(TAG, "Skipping frame: " + frameHeader.getId() + ", size: " + frameHeader.getSize());
         skipBytes(frameHeader.getSize());
     }
 
@@ -106,7 +106,7 @@ public class ID3Reader {
 
     @NonNull
     FrameHeader readFrameHeader() throws IOException {
-        String id = readIsoStringFixed(FRAME_ID_LENGTH);
+        String id = readPlainBytesToString(FRAME_ID_LENGTH);
         int size = readInt();
         if (tagHeader != null && tagHeader.getVersion() >= 0x0400) {
             size = unsynchsafe(size);
@@ -136,15 +136,14 @@ public class ID3Reader {
         return readEncodedString(encoding, max - 1);
     }
 
-    @SuppressWarnings("CharsetObjectCanBeUsed")
-    protected String readIsoStringFixed(int length) throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    protected String readPlainBytesToString(int length) throws IOException {
+        StringBuilder stringBuilder = new StringBuilder();
         int bytesRead = 0;
         while (bytesRead < length) {
-            bytes.write(readByte());
+            stringBuilder.append((char) readByte());
             bytesRead++;
         }
-        return Charset.forName("ISO-8859-1").newDecoder().decode(ByteBuffer.wrap(bytes.toByteArray())).toString();
+        return stringBuilder.toString();
     }
 
     protected String readIsoStringNullTerminated(int max) throws IOException {
@@ -154,18 +153,18 @@ public class ID3Reader {
     @SuppressWarnings("CharsetObjectCanBeUsed")
     String readEncodedString(int encoding, int max) throws IOException {
         if (encoding == ENCODING_UTF16_WITH_BOM || encoding == ENCODING_UTF16_WITHOUT_BOM) {
-            return readEncodedString2(Charset.forName("UTF-16"), max);
+            return readEncodedString2char(Charset.forName("UTF-16"), max);
         } else if (encoding == ENCODING_UTF8) {
-            return readEncodedString2(Charset.forName("UTF-8"), max);
+            return readEncodedString1char(Charset.forName("UTF-8"), max);
         } else {
-            return readEncodedString1(Charset.forName("ISO-8859-1"), max);
+            return readEncodedString1char(Charset.forName("ISO-8859-1"), max);
         }
     }
 
     /**
      * Reads chars where the encoding uses 1 char per symbol.
      */
-    private String readEncodedString1(Charset charset, int max) throws IOException {
+    private String readEncodedString1char(Charset charset, int max) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         int bytesRead = 0;
         while (bytesRead < max) {
@@ -182,7 +181,7 @@ public class ID3Reader {
     /**
      * Reads chars where the encoding uses 2 chars per symbol.
      */
-    private String readEncodedString2(Charset charset, int max) throws IOException {
+    private String readEncodedString2char(Charset charset, int max) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         int bytesRead = 0;
         boolean foundEnd = false;

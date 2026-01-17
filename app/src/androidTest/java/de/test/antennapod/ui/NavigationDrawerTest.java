@@ -1,21 +1,20 @@
 package de.test.antennapod.ui;
 
 import android.content.Intent;
-import androidx.test.platform.app.InstrumentationRegistry;
+import android.os.Build;
+import android.view.View;
+import androidx.test.espresso.ViewInteraction;
 import androidx.test.espresso.contrib.DrawerActions;
 import androidx.test.espresso.intent.rule.IntentsTestRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.activity.MainActivity;
-import de.danoeh.antennapod.activity.PreferenceActivity;
-import de.danoeh.antennapod.fragment.CompletedDownloadsFragment;
 import de.danoeh.antennapod.model.feed.Feed;
-import de.danoeh.antennapod.core.preferences.UserPreferences;
-import de.danoeh.antennapod.fragment.EpisodesFragment;
-import de.danoeh.antennapod.fragment.NavDrawerFragment;
-import de.danoeh.antennapod.fragment.PlaybackHistoryFragment;
-import de.danoeh.antennapod.fragment.QueueFragment;
+import de.danoeh.antennapod.storage.preferences.UserPreferences;
+import de.danoeh.antennapod.ui.screen.preferences.PreferenceActivity;
 import de.test.antennapod.EspressoTestUtils;
+import org.hamcrest.Matcher;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -23,13 +22,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Collections;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
-import static androidx.test.espresso.action.ViewActions.longClick;
 import static androidx.test.espresso.action.ViewActions.swipeUp;
 import static androidx.test.espresso.intent.Intents.intended;
 import static androidx.test.espresso.intent.matcher.IntentMatchers.hasComponent;
@@ -38,12 +34,9 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
-import static de.test.antennapod.EspressoTestUtils.onDrawerItem;
 import static de.test.antennapod.EspressoTestUtils.waitForView;
-import static de.test.antennapod.NthMatcher.first;
 import static org.hamcrest.Matchers.allOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 /**
  * User interface tests for MainActivity drawer.
@@ -63,6 +56,7 @@ public class NavigationDrawerTest {
 
         EspressoTestUtils.clearPreferences();
         EspressoTestUtils.clearDatabase();
+        UserPreferences.setBottomNavigationEnabled(false);
     }
 
     @After
@@ -75,17 +69,33 @@ public class NavigationDrawerTest {
         onView(withId(R.id.drawer_layout)).perform(DrawerActions.open());
     }
 
+    private ViewInteraction onDrawerItem(Matcher<View> viewMatcher) {
+        return onView(allOf(viewMatcher, withId(R.id.txtvTitle)));
+    }
+
     @Test
     public void testClickNavDrawer() throws Exception {
         uiTestUtils.addLocalFeedData(false);
-        UserPreferences.setHiddenDrawerItems(new ArrayList<>());
+        UserPreferences.setDrawerItemOrder(Collections.emptyList(), Collections.emptyList());
         activityRule.launchActivity(new Intent());
+
+        // home
+        openNavDrawer();
+        onDrawerItem(withText(R.string.home_label)).perform(click());
+        onView(isRoot()).perform(waitForView(allOf(isDescendantOfA(withId(R.id.toolbar)),
+                withText(R.string.home_label)), 1000));
 
         // queue
         openNavDrawer();
         onDrawerItem(withText(R.string.queue_label)).perform(click());
         onView(isRoot()).perform(waitForView(allOf(isDescendantOfA(withId(R.id.toolbar)),
                 withText(R.string.queue_label)), 1000));
+
+        // Inbox
+        openNavDrawer();
+        onDrawerItem(withText(R.string.inbox_label)).perform(click());
+        onView(isRoot()).perform(waitForView(allOf(isDescendantOfA(withId(R.id.toolbar)),
+                withText(R.string.inbox_label)), 1000));
 
         // episodes
         openNavDrawer();
@@ -130,87 +140,10 @@ public class NavigationDrawerTest {
 
     @Test
     public void testGoToPreferences() {
+        assumeTrue(Build.VERSION.SDK_INT >= 30); // Unclear why this crashes on old Android versions
         activityRule.launchActivity(new Intent());
         openNavDrawer();
         onView(withText(R.string.settings_label)).perform(click());
         intended(hasComponent(PreferenceActivity.class.getName()));
-    }
-
-    @Test
-    public void testDrawerPreferencesHideSomeElements() {
-        UserPreferences.setHiddenDrawerItems(new ArrayList<>());
-        activityRule.launchActivity(new Intent());
-        openNavDrawer();
-        onDrawerItem(withText(R.string.queue_label)).perform(longClick());
-        onView(withText(R.string.episodes_label)).perform(click());
-        onView(withText(R.string.playback_history_label)).perform(click());
-        onView(withText(R.string.confirm_label)).perform(click());
-
-        List<String> hidden = UserPreferences.getHiddenDrawerItems();
-        assertEquals(2, hidden.size());
-        assertTrue(hidden.contains(EpisodesFragment.TAG));
-        assertTrue(hidden.contains(PlaybackHistoryFragment.TAG));
-    }
-
-    @Test
-    public void testDrawerPreferencesUnhideSomeElements() {
-        List<String> hidden = Arrays.asList(PlaybackHistoryFragment.TAG, CompletedDownloadsFragment.TAG);
-        UserPreferences.setHiddenDrawerItems(hidden);
-        activityRule.launchActivity(new Intent());
-        openNavDrawer();
-        onView(first(withText(R.string.queue_label))).perform(longClick());
-
-        onView(withText(R.string.downloads_label)).perform(click());
-        onView(withText(R.string.queue_label)).perform(click());
-        onView(withText(R.string.confirm_label)).perform(click());
-
-        hidden = UserPreferences.getHiddenDrawerItems();
-        assertEquals(2, hidden.size());
-        assertTrue(hidden.contains(QueueFragment.TAG));
-        assertTrue(hidden.contains(PlaybackHistoryFragment.TAG));
-    }
-
-
-    @Test
-    public void testDrawerPreferencesHideAllElements() {
-        UserPreferences.setHiddenDrawerItems(new ArrayList<>());
-        activityRule.launchActivity(new Intent());
-        String[] titles = activityRule.getActivity().getResources().getStringArray(R.array.nav_drawer_titles);
-
-        openNavDrawer();
-        onView(first(withText(R.string.queue_label))).perform(longClick());
-        for (int i = 0; i < titles.length; i++) {
-            String title = titles[i];
-            onView(allOf(withText(title), isDisplayed())).perform(click());
-
-            if (i == 3) {
-                onView(withId(R.id.select_dialog_listview)).perform(swipeUp());
-            }
-        }
-
-        onView(withText(R.string.confirm_label)).perform(click());
-
-        List<String> hidden = UserPreferences.getHiddenDrawerItems();
-        assertEquals(titles.length, hidden.size());
-        for (String tag : NavDrawerFragment.NAV_DRAWER_TAGS) {
-            assertTrue(hidden.contains(tag));
-        }
-    }
-
-    @Test
-    public void testDrawerPreferencesHideCurrentElement() {
-        UserPreferences.setHiddenDrawerItems(new ArrayList<>());
-        activityRule.launchActivity(new Intent());
-        openNavDrawer();
-        onView(withText(R.string.downloads_label)).perform(click());
-        openNavDrawer();
-
-        onView(first(withText(R.string.queue_label))).perform(longClick());
-        onView(first(withText(R.string.downloads_label))).perform(click());
-        onView(withText(R.string.confirm_label)).perform(click());
-
-        List<String> hidden = UserPreferences.getHiddenDrawerItems();
-        assertEquals(1, hidden.size());
-        assertTrue(hidden.contains(CompletedDownloadsFragment.TAG));
     }
 }

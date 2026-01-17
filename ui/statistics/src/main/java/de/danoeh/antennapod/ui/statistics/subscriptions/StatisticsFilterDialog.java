@@ -2,9 +2,10 @@ package de.danoeh.antennapod.ui.statistics.subscriptions;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.text.format.DateFormat;
 import android.view.LayoutInflater;
 import android.widget.ArrayAdapter;
-import androidx.appcompat.app.AlertDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import androidx.core.util.Pair;
 import de.danoeh.antennapod.event.StatisticsEvent;
 import de.danoeh.antennapod.ui.statistics.R;
@@ -40,7 +41,7 @@ public class StatisticsFilterDialog {
     public void show() {
         StatisticsFilterDialogBinding dialogBinding = StatisticsFilterDialogBinding.inflate(
                 LayoutInflater.from(context));
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(context);
         builder.setView(dialogBinding.getRoot());
         builder.setTitle(R.string.filter);
         dialogBinding.includeMarkedCheckbox.setOnCheckedChangeListener((compoundButton, checked) -> {
@@ -80,7 +81,7 @@ public class StatisticsFilterDialog {
             dialogBinding.timeToSpinner.setSelection(filterDatesTo.first.length - 1);
         });
         dialogBinding.pastYearButton.setOnClickListener(v -> {
-            dialogBinding.timeFromSpinner.setSelection(Math.max(0, filterDatesFrom.first.length - 13));
+            dialogBinding.timeFromSpinner.setSelection(Math.max(0, filterDatesFrom.first.length - 12));
             dialogBinding.timeToSpinner.setSelection(filterDatesTo.first.length - 2);
         });
 
@@ -107,10 +108,15 @@ public class StatisticsFilterDialog {
     private Pair<String[], Long[]> makeMonthlyList(long oldestDate, boolean inclusive) {
         Calendar date = Calendar.getInstance();
         date.setTimeInMillis(oldestDate);
+        date.set(Calendar.HOUR_OF_DAY, 0);
+        date.set(Calendar.MINUTE, 0);
+        date.set(Calendar.SECOND, 0);
+        date.set(Calendar.MILLISECOND, 0);
         date.set(Calendar.DAY_OF_MONTH, 1);
         ArrayList<String> names = new ArrayList<>();
         ArrayList<Long> timestamps = new ArrayList<>();
-        SimpleDateFormat dateFormat = new SimpleDateFormat("MMM yyyy", Locale.getDefault());
+        String skeleton = DateFormat.getBestDateTimePattern(Locale.getDefault(), "MMM yyyy");
+        SimpleDateFormat dateFormat = new SimpleDateFormat(skeleton, Locale.getDefault());
         while (date.getTimeInMillis() < System.currentTimeMillis()) {
             names.add(dateFormat.format(new Date(date.getTimeInMillis())));
             if (!inclusive) {
