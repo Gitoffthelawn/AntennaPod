@@ -4,8 +4,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Parcelable;
 import androidx.core.content.ContextCompat;
-
 import de.danoeh.antennapod.model.playback.Playable;
+import de.danoeh.antennapod.playback.base.BuildConfig;
+import de.danoeh.antennapod.playback.service.internal.MediaItemAdapter;
 
 public class PlaybackServiceStarter {
     private final Context context;
@@ -39,6 +40,15 @@ public class PlaybackServiceStarter {
     }
 
     public void start() {
+        if (BuildConfig.USE_MEDIA3_PLAYBACK_SERVICE) {
+            PlaybackController.bindToMedia3Service(context, controller -> {
+                controller.setMediaItem(MediaItemAdapter.fromPlayable(media));
+                controller.prepare();
+                controller.play();
+            });
+            return;
+        }
+
         if (PlaybackService.isRunning && !callEvenIfRunning) {
             return;
         }
